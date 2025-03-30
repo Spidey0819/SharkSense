@@ -1,9 +1,8 @@
-# requirements.txt
 flask==2.0.1
 werkzeug==2.0.3
 flask-cors==3.0.10
 Pillow==9.5.0
-timm==0.6.12
 streamlit==1.30.0
-torch==2.1.0
-torchvision==0.16.0
+torch>=2.2.0
+torchvision>=0.16.0
+timm==0.6.12
