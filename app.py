@@ -1,13 +1,9 @@
 import streamlit as st
-import os
-import io
-import zipfile
 from PIL import Image, ImageDraw, ImageFont
-import logging
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import io
+import os
+import zipfile
+import random
 
 # Page configuration
 st.set_page_config(
@@ -23,52 +19,6 @@ classes = [
     'tiger', 'whale', 'white', 'whitetip'
 ]
 
-# Try to import torch-related dependencies
-try:
-    import torch
-    import torch.nn.functional as F
-    from torchvision import transforms
-    from model import SharkClassifier
-    
-    # Define your image transformation pipeline
-    transform = transforms.Compose([
-        transforms.Lambda(lambda img: img.convert("RGB")),
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                             [0.229, 0.224, 0.225])
-    ])
-    
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    st.error("⚠️ PyTorch dependencies could not be loaded. Running in demo mode.")
-
-@st.cache_resource
-def load_model():
-    """Load the model once and cache it"""
-    if not TORCH_AVAILABLE:
-        return None, None
-        
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info(f"Using device: {device}")
-    
-    model = SharkClassifier(num_classes=14)
-    try:
-        model.load_state_dict(torch.load('model_phase2_full.pth', map_location=device))
-        logger.info("Model weights loaded successfully.")
-    except FileNotFoundError:
-        st.error("Model file 'model_phase2_full.pth' not found.")
-        return None, None
-    except Exception as e:
-        st.error(f"Error loading model weights: {str(e)}")
-        return None, None
-    
-    model.to(device)
-    model.eval()
-    return model, device
-
 def label_image(pil_image, text):
     """
     Draws the given text at the top-left corner of the image.
@@ -83,8 +33,8 @@ def label_image(pil_image, text):
     # Choose text position and color
     position = (20, 20)
     
-    # Draw text with a darker background for visibility
-    text_width, text_height = draw.textsize(text, font=font) if hasattr(draw, 'textsize') else (100, 20)
+    # Draw a semi-transparent background for text
+    text_width, text_height = 200, 20  # Approximate size
     draw.rectangle(
         [position[0]-5, position[1]-5, position[0]+text_width+5, position[1]+text_height+5],
         fill=(0, 0, 0, 128)
@@ -94,58 +44,35 @@ def label_image(pil_image, text):
     draw.text(position, text, fill=(255, 255, 255), font=font)
     return image_rgba.convert("RGB")
 
-def predict_image(image, model, device):
-    """Make prediction for a single image"""
-    if not TORCH_AVAILABLE or model is None:
-        # Return mock prediction in demo mode
-        import random
-        predictions = []
-        used_indices = set()
-        
-        # Get three random classes with decreasing confidence
-        for i in range(3):
-            idx = random.randint(0, len(classes)-1)
-            while idx in used_indices:
-                idx = random.randint(0, len(classes)-1)
-            used_indices.add(idx)
-            
-            confidence = max(0.4, 0.9 - (i * 0.15) + (random.random() * 0.1))
-            predictions.append((classes[idx], confidence))
-        
-        return predictions
-    
-    # Real prediction with model
-    input_tensor = transform(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        outputs = model(input_tensor)
-        probs = F.softmax(outputs, dim=1)
-    
-    # Get top 3 predictions
-    top_probs, top_indices = torch.topk(probs, 3)
+def predict_image(image):
+    """Make a demo prediction for an image"""
+    # Return mock prediction in demo mode
     predictions = []
+    used_indices = set()
     
+    # Get three random classes with decreasing confidence
     for i in range(3):
-        label = classes[top_indices[0][i].item()]
-        confidence = top_probs[0][i].item()
-        predictions.append((label, confidence))
+        idx = random.randint(0, len(classes)-1)
+        while idx in used_indices:
+            idx = random.randint(0, len(classes)-1)
+        used_indices.add(idx)
+        
+        confidence = max(0.4, 0.9 - (i * 0.15) + (random.random() * 0.1))
+        predictions.append((classes[idx], confidence))
     
     return predictions
 
 def main():
     st.title("🦈 Shark Species Classifier")
     
-    if not TORCH_AVAILABLE:
-        st.warning("""
-        **Running in Demo Mode**
-        
-        PyTorch dependencies could not be loaded. The app is running in demo mode with random predictions.
-        For full functionality, update requirements.txt with compatible versions and redeploy.
-        """)
+    st.info("""
+    **Demo Mode**
+    
+    This is a demonstration version of the Shark Classifier. 
+    In this mode, the app generates random predictions for illustration purposes.
+    """)
     
     st.write("Upload shark images and get species predictions!")
-    
-    # Load model if possible
-    model, device = load_model()
     
     # Sidebar for mode selection
     mode = st.sidebar.radio(
@@ -156,8 +83,8 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("## About")
     st.sidebar.info(
-        "This app uses a ResNet50 model trained to identify "
-        "14 different species of sharks from images."
+        "This app demonstrates a shark classifier that would normally use "
+        "a ResNet50 model trained to identify 14 different species of sharks from images."
     )
     
     if mode == "Single Image":
@@ -173,7 +100,7 @@ def main():
             
             with col2:
                 with st.spinner("Analyzing image..."):
-                    predictions = predict_image(image, model, device)
+                    predictions = predict_image(image)
                 
                 st.success("Analysis complete!")
                 
@@ -219,7 +146,7 @@ def main():
                         image = Image.open(uploaded_file)
                         
                         # Get prediction
-                        predictions = predict_image(image, model, device)
+                        predictions = predict_image(image)
                         top_label, top_confidence = predictions[0]
                         
                         # Label image
@@ -244,6 +171,20 @@ def main():
                     file_name="labeled_sharks.zip",
                     mime="application/zip"
                 )
+                
+    # Add information about how to implement the full model
+    st.markdown("---")
+    st.markdown("""
+    ### Implementing the Full Model
+    
+    To implement the actual shark classification model:
+    
+    1. You'll need to install PyTorch 2.2.0+ compatible with your Python version
+    2. Ensure the model file (`model_phase2_full.pth`) is accessible
+    3. Add the necessary imports and model loading code
+    
+    You can use a platform like Hugging Face Spaces, Google Colab, or a custom server for better compatibility with PyTorch requirements.
+    """)
 
 if __name__ == "__main__":
     main()
